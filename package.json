@@ -22,7 +22,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/tishlang/tishdoc-render-html.git"
+    "url": "git+https://github.com/tishlang/tishdoc-render-html.git"
   },
   "scripts": {
     "build": "tish build --target js --no-optimize src/main.tish -o dist/tishdoc-render-html.js && TISH_EXPORT_OUT=dist/tishdoc-render-html.js TISH_EXPORT_NAMES=renderToHtmlFragment,renderToHtmlDocument,defaultPrintCss node scripts/append-exports.mjs",
