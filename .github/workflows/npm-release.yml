@@ -1,0 +1,52 @@
+# Publish to npm when a GitHub release is published (full releases only, not prereleases).
+#
+# AUTH: npm OIDC trusted publishing (no NPM_TOKEN). ONE-TIME setup required on npmjs.com:
+#   npmjs.com > this package > Settings > "Trusted Publisher" > GitHub Actions, then set
+#   Organization/user + Repository to THIS repo and Workflow filename: npm-release.yml
+# Requires npm >= 11.5.1 (upgraded below) and id-token: write. Skips if the version is
+# already published so re-running a release stays green.
+
+name: NPM release
+
+on:
+  release:
+    types: [published, edited]
+
+jobs:
+  publish:
+    name: Publish to npm
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for OIDC trusted publishing (needs >= 11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Determine version and whether it is already published
+        id: check
+        run: |
+          NAME="$(node -p "require('./package.json').name")"
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${NAME}@${VERSION} is already published — skipping."
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        if: steps.check.outputs.already == 'false'
+        run: |
+          npm version "${{ steps.check.outputs.version }}" --no-git-tag-version --allow-same-version
+          npm publish --access public
