@@ -1,0 +1,33 @@
+{
+  "name": "@tishlang/tishdoc-render-html",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TishDoc AST → semantic HTML + default print CSS",
+  "type": "module",
+  "tish": {
+    "module": "./src/main.tish"
+  },
+  "main": "./dist/tishdoc-render-html.js",
+  "exports": {
+    ".": {
+      "tish": "./src/main.tish",
+      "import": "./dist/tishdoc-render-html.js",
+      "default": "./dist/tishdoc-render-html.js"
+    }
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@tishlang/tish": "1.9.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tishlang/tishdoc-render-html.git"
+  },
+  "scripts": {
+    "build": "tish build --target js --no-optimize src/main.tish -o dist/tishdoc-render-html.js && TISH_EXPORT_OUT=dist/tishdoc-render-html.js TISH_EXPORT_NAMES=renderToHtmlFragment,renderToHtmlDocument,defaultPrintCss node scripts/append-exports.mjs",
+    "test": "node ./test/run_node.mjs"
+  },
+  "peerDependencies": {
+    "@tishlang/tish-syntax-highlight": "*"
+  }
+}

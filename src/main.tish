@@ -1,0 +1,381 @@
+// Walk TishDoc AST → semantic HTML; print CSS is separate for bundling into <style>.
+
+import { highlightCodeToHtml, defaultSyntaxHighlightCss } from "../../tish-syntax-highlight/src/main.tish"
+
+fn escapeHtml(s) {
+  if (s === null) {
+    return ""
+  }
+  let t = typeof s === "string" ? s : String(s)
+  let out = ""
+  let i = 0
+  while (i < t.length) {
+    let c = t.charAt(i)
+    if (c === "&") {
+      out = out + "&amp;"
+    } else if (c === "<") {
+      out = out + "&lt;"
+    } else if (c === ">") {
+      out = out + "&gt;"
+    } else if (c === "\"") {
+      out = out + "&quot;"
+    } else {
+      out = out + c
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn renderInlines(nodes) {
+  if (nodes === null) {
+    return ""
+  }
+  let buf = ""
+  let i = 0
+  while (i < nodes.length) {
+    buf = buf + renderInlineNode(nodes[i])
+    i = i + 1
+  }
+  return buf
+}
+
+fn formatLeafAttrsHtml(attrs) {
+  if (attrs === null || typeof attrs !== "object") {
+    return ""
+  }
+  let ks = Object.keys(attrs)
+  let buf = ""
+  let ai = 0
+  while (ai < ks.length) {
+    if (ai > 0) {
+      buf = buf + " · "
+    }
+    let k = ks[ai]
+    buf = buf + escapeHtml(String(k)) + ": " + escapeHtml(String(attrs[k]))
+    ai = ai + 1
+  }
+  return buf
+}
+
+// Allow safe URL schemes only (block javascript:, data:, vbscript: …).
+fn isSafeUrl(u) {
+  if (u === null || u === undefined) { return false }
+  let s = typeof u === "string" ? u : String(u)
+  if (s.length === 0) { return false }
+  let lc = s.toLowerCase()
+  if (lc.length >= 8 && lc.slice(0, 8) === "https://") { return true }
+  if (lc.length >= 7 && lc.slice(0, 7) === "http://") { return true }
+  if (lc.length >= 7 && lc.slice(0, 7) === "mailto:") { return true }
+  // Relative path / fragment-only links are safe.
+  if (s.charAt(0) === "/" || s.charAt(0) === "#" || s.charAt(0) === "?") { return true }
+  // Bare relative segment without a scheme: contains no "://".
+  if (s.indexOf("://") < 0 && s.indexOf(":") < 0) { return true }
+  return false
+}
+
+fn renderInlineNode(n) {
+  let ty = n["type"]
+  if (ty === "Text") {
+    return escapeHtml(n["value"])
+  }
+  if (ty === "CodeSpan") {
+    return "<code>" + escapeHtml(n["value"]) + "</code>"
+  }
+  if (ty === "Emphasis") {
+    return "<strong>" + renderInlines(n["children"]) + "</strong>"
+  }
+  if (ty === "Italic") {
+    return "<em>" + renderInlines(n["children"]) + "</em>"
+  }
+  if (ty === "Strikethrough") {
+    return "<del>" + renderInlines(n["children"]) + "</del>"
+  }
+  if (ty === "LineBreak") {
+    return "<br/>"
+  }
+  if (ty === "Link") {
+    let href = n["href"]
+    if (!isSafeUrl(href)) {
+      return renderInlines(n["children"])
+    }
+    let title = n["title"]
+    let attrs = "href=\"" + escapeHtml(String(href)) + "\""
+    if (title !== null && title !== undefined && String(title).length > 0) {
+      attrs = attrs + " title=\"" + escapeHtml(String(title)) + "\""
+    }
+    let lc = String(href).toLowerCase()
+    let external = (lc.length >= 8 && lc.slice(0, 8) === "https://") || (lc.length >= 7 && lc.slice(0, 7) === "http://") || (lc.length >= 7 && lc.slice(0, 7) === "mailto:")
+    if (external) {
+      attrs = attrs + " target=\"_blank\" rel=\"noopener noreferrer\""
+    }
+    return "<a " + attrs + ">" + renderInlines(n["children"]) + "</a>"
+  }
+  if (ty === "Image") {
+    let src = n["src"]
+    if (!isSafeUrl(src)) { return "" }
+    let alt = n["alt"]
+    if (alt === null || alt === undefined) { alt = "" }
+    let title = n["title"]
+    let attrs = "src=\"" + escapeHtml(String(src)) + "\" alt=\"" + escapeHtml(String(alt)) + "\" loading=\"lazy\""
+    if (title !== null && title !== undefined && String(title).length > 0) {
+      attrs = attrs + " title=\"" + escapeHtml(String(title)) + "\""
+    }
+    return "<img " + attrs + " />"
+  }
+  return ""
+}
+
+fn renderBlockNode(n) {
+  let ty = n["type"]
+  if (ty === "Heading") {
+    let lvl = n["level"]
+    if (lvl < 1) {
+      lvl = 1
+    }
+    if (lvl > 6) {
+      lvl = 6
+    }
+    let tag = "h" + String(lvl)
+    return "<" + tag + ">" + renderInlines(n["children"]) + "</" + tag + ">\n"
+  }
+  if (ty === "Paragraph") {
+    return "<p>" + renderInlines(n["children"]) + "</p>\n"
+  }
+  if (ty === "CodeBlock") {
+    let rawLang = n["lang"]
+    if (rawLang === null || rawLang === undefined) {
+      rawLang = ""
+    }
+    rawLang = typeof rawLang === "string" ? rawLang : String(rawLang)
+    rawLang = rawLang.trim()
+    if (rawLang.length === 0) {
+      rawLang = "plaintext"
+    }
+    let lang = escapeHtml(rawLang)
+    let innerCode = highlightCodeToHtml(n["value"], rawLang)
+    return "<pre><code class=\"language-" + lang + " tish-hl\">" + innerCode + "</code></pre>\n"
+  }
+  if (ty === "List") {
+    let tag = n["ordered"] ? "ol" : "ul"
+    let s = "<" + tag + ">\n"
+    let items = n["items"]
+    let ii = 0
+    while (ii < items.length) {
+      s = s + "<li>" + renderInlines(items[ii]["children"]) + "</li>\n"
+      ii = ii + 1
+    }
+    s = s + "</" + tag + ">\n"
+    return s
+  }
+  if (ty === "DirectiveBlock") {
+    let s2 = "<div class=\"tishdoc-directive\" data-name=\"" + escapeHtml(n["name"]) + "\">\n"
+    let ch = n["children"]
+    let ci = 0
+    while (ci < ch.length) {
+      s2 = s2 + renderBlockNode(ch[ci])
+      ci = ci + 1
+    }
+    s2 = s2 + "</div>\n"
+    return s2
+  }
+  if (ty === "DirectiveLeaf") {
+    let nm = escapeHtml(String(n["name"]))
+    let attrs = n["attrs"]
+    let meta = formatLeafAttrsHtml(attrs)
+    let inner = "<span class=\"tishdoc-leaf-name\">" + nm + "</span>"
+    if (meta.length > 0) {
+      inner = inner + "<span class=\"tishdoc-leaf-attrs\">" + meta + "</span>"
+    }
+    return "<div class=\"tishdoc-directive tishdoc-leaf\" data-name=\"" + nm + "\">" + inner + "</div>\n"
+  }
+  if (ty === "Include") {
+    let s3 = "<aside class=\"tishdoc-include\" data-path=\"" + escapeHtml(n["path"]) + "\" data-resolved=\"" + String(n["resolved"]) + "\">\n"
+    let ch2 = n["children"]
+    let cj = 0
+    while (cj < ch2.length) {
+      s3 = s3 + renderBlockNode(ch2[cj])
+      cj = cj + 1
+    }
+    s3 = s3 + "</aside>\n"
+    return s3
+  }
+  if (ty === "BlockQuote") {
+    let s4 = "<blockquote>\n"
+    let bch = n["children"]
+    let bi = 0
+    while (bi < bch.length) {
+      s4 = s4 + renderBlockNode(bch[bi])
+      bi = bi + 1
+    }
+    s4 = s4 + "</blockquote>\n"
+    return s4
+  }
+  if (ty === "ThematicBreak") {
+    return "<hr/>\n"
+  }
+  if (ty === "OrderedList") {
+    let start = n["start"]
+    let attr = ""
+    if (start !== null && start !== undefined && start !== 1) {
+      attr = " start=\"" + String(start) + "\""
+    }
+    let s5 = "<ol" + attr + ">\n"
+    let oitems = n["items"]
+    let oi = 0
+    while (oi < oitems.length) {
+      s5 = s5 + "<li>" + renderInlines(oitems[oi]["children"]) + "</li>\n"
+      oi = oi + 1
+    }
+    s5 = s5 + "</ol>\n"
+    return s5
+  }
+  if (ty === "Table") {
+    let aligns = n["aligns"]
+    let header = n["header"]
+    let rows = n["rows"]
+    let s6 = "<table class=\"tishdoc-table\">\n<thead>\n<tr>\n"
+    let hi = 0
+    while (hi < header.length) {
+      let a = ""
+      if (hi < aligns.length && aligns[hi] !== "default") {
+        a = " style=\"text-align: " + escapeHtml(aligns[hi]) + "\""
+      }
+      s6 = s6 + "<th" + a + ">" + renderInlines(header[hi]["children"]) + "</th>\n"
+      hi = hi + 1
+    }
+    s6 = s6 + "</tr>\n</thead>\n<tbody>\n"
+    let ri = 0
+    while (ri < rows.length) {
+      s6 = s6 + "<tr>\n"
+      let row = rows[ri]
+      let ci = 0
+      while (ci < row.length) {
+        let a2 = ""
+        if (ci < aligns.length && aligns[ci] !== "default") {
+          a2 = " style=\"text-align: " + escapeHtml(aligns[ci]) + "\""
+        }
+        s6 = s6 + "<td" + a2 + ">" + renderInlines(row[ci]["children"]) + "</td>\n"
+        ci = ci + 1
+      }
+      s6 = s6 + "</tr>\n"
+      ri = ri + 1
+    }
+    s6 = s6 + "</tbody>\n</table>\n"
+    return s6
+  }
+  return ""
+}
+
+export fn renderToHtmlFragment(ast) {
+  if (ast === null || ast["type"] !== "Document") {
+    return ""
+  }
+  let ch = ast["children"]
+  let out = ""
+  let i = 0
+  while (i < ch.length) {
+    out = out + renderBlockNode(ch[i])
+    i = i + 1
+  }
+  return out
+}
+
+export fn defaultPrintCss() {
+  let css = "@page { size: letter; margin: 0.75in; }\n"
+  css = css + ":root { color-scheme: light dark; }\n"
+  css = css + "html { background: Canvas; }\n"
+  css = css + "body {\n"
+  css = css + "  font-family: system-ui, -apple-system, Segoe UI, sans-serif;\n"
+  css = css + "  line-height: 1.55;\n"
+  css = css + "  margin: 0;\n"
+  css = css + "  padding: 1rem 1.25rem 2rem;\n"
+  css = css + "  background: Canvas;\n"
+  css = css + "  color: CanvasText;\n"
+  css = css + "}\n"
+  css = css + "article.tishdoc { max-width: 48rem; margin: 0 auto; }\n"
+  css = css + "article.tishdoc h1 { font-size: 1.75rem; margin: 1.15em 0 0.45em; line-height: 1.2; }\n"
+  css = css + "article.tishdoc h2 { font-size: 1.35rem; margin: 1.05em 0 0.4em; line-height: 1.25; }\n"
+  css = css + "article.tishdoc h3 { font-size: 1.15rem; margin: 0.95em 0 0.35em; }\n"
+  css = css + "article.tishdoc h4, article.tishdoc h5, article.tishdoc h6 { font-size: 1rem; margin: 0.85em 0 0.3em; opacity: 0.92; }\n"
+  css = css + "article.tishdoc p { margin: 0.6em 0; }\n"
+  css = css + "article.tishdoc ul { margin: 0.5em 0; padding-left: 1.35rem; }\n"
+  css = css + "article.tishdoc li { margin: 0.28em 0; }\n"
+  css = css + "pre {\n"
+  css = css + "  overflow-x: auto;\n"
+  css = css + "  page-break-inside: avoid;\n"
+  css = css + "  padding: 0.85rem 1rem;\n"
+  css = css + "  border-radius: 8px;\n"
+  css = css + "  border: 1px solid color-mix(in srgb, CanvasText 14%, Canvas);\n"
+  css = css + "  background: color-mix(in srgb, CanvasText 7%, Canvas);\n"
+  css = css + "  font-size: 0.875rem;\n"
+  css = css + "}\n"
+  css = css + "pre code {\n"
+  css = css + "  padding: 0;\n"
+  css = css + "  border: none;\n"
+  css = css + "  background: transparent;\n"
+  css = css + "}\n"
+  css = css + "code {\n"
+  css = css + "  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;\n"
+  css = css + "  font-size: 0.9em;\n"
+  css = css + "}\n"
+  css = css + "p code, li code {\n"
+  css = css + "  padding: 0.12em 0.35em;\n"
+  css = css + "  border-radius: 4px;\n"
+  css = css + "  border: 1px solid color-mix(in srgb, CanvasText 12%, Canvas);\n"
+  css = css + "  background: color-mix(in srgb, CanvasText 9%, Canvas);\n"
+  css = css + "}\n"
+  css = css + "h1, h2, h3 { page-break-after: avoid; }\n"
+  css = css + ".tishdoc-directive {\n"
+  css = css + "  margin: 0.85em 0;\n"
+  css = css + "  padding: 0.75rem 1rem;\n"
+  css = css + "  border-left: 4px solid color-mix(in srgb, CanvasText 38%, Canvas);\n"
+  css = css + "  background: color-mix(in srgb, CanvasText 5%, Canvas);\n"
+  css = css + "  border-radius: 0 8px 8px 0;\n"
+  css = css + "}\n"
+  css = css + ".tishdoc-include {\n"
+  css = css + "  margin: 0.85em 0;\n"
+  css = css + "  padding: 0.75rem 1rem;\n"
+  css = css + "  border: 1px dashed color-mix(in srgb, CanvasText 30%, Canvas);\n"
+  css = css + "  border-radius: 8px;\n"
+  css = css + "  background: color-mix(in srgb, CanvasText 4%, Canvas);\n"
+  css = css + "}\n"
+  css = css + ".tishdoc-leaf {\n"
+  css = css + "  display: inline-flex;\n"
+  css = css + "  align-items: baseline;\n"
+  css = css + "  flex-wrap: wrap;\n"
+  css = css + "  gap: 0.45rem 0.65rem;\n"
+  css = css + "  margin: 0.65em 0;\n"
+  css = css + "  padding: 0.45rem 0.65rem;\n"
+  css = css + "  font-size: 0.85rem;\n"
+  css = css + "  font-family: ui-monospace, monospace;\n"
+  css = css + "  border-radius: 6px;\n"
+  css = css + "  border: 1px solid color-mix(in srgb, CanvasText 22%, Canvas);\n"
+  css = css + "  color: color-mix(in srgb, CanvasText 88%, Canvas);\n"
+  css = css + "}\n"
+  css = css + ".tishdoc-leaf-name { font-weight: 600; letter-spacing: 0.02em; }\n"
+  css = css + ".tishdoc-leaf-attrs { opacity: 0.88; font-weight: 400; }\n"
+  css = css + defaultSyntaxHighlightCss()
+  return css
+}
+
+export fn renderToHtmlDocument(ast) {
+  let title = ""
+  let meta = ast["meta"]
+  if (meta !== null && typeof meta === "object") {
+    let ks = Object.keys(meta)
+    let ki = 0
+    while (ki < ks.length) {
+      if (ks[ki] === "title") {
+        title = String(meta[ks[ki]])
+      }
+      ki = ki + 1
+    }
+  }
+  let inner = renderToHtmlFragment(ast)
+  let css = defaultPrintCss()
+  let doc = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\"/>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>\n<title>"
+  doc = doc + escapeHtml(title) + "</title>\n<style>\n" + css + "</style>\n</head>\n<body>\n<article class=\"tishdoc\">\n"
+  doc = doc + inner + "</article>\n</body>\n</html>\n"
+  return doc
+}
