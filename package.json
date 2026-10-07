@@ -21,7 +21,7 @@
   "devDependencies": {
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/release-notes-generator": "^14.1.1",
-    "@tishlang/tish": "1.9.2",
+    "@tishlang/tish": "^3.15.3",
     "semantic-release": "^25.0.9"
   },
   "repository": {
