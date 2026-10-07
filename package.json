@@ -2,6 +2,7 @@
   "name": "@tishlang/tishdoc-render-html",
   "version": "0.1.0",
   "description": "TishDoc AST → semantic HTML + default print CSS",
+  "license": "MIT",
   "type": "module",
   "tish": {
     "module": "./src/main.tish"
