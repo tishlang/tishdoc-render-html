@@ -1,0 +1,77 @@
+# Tests and build on every push and pull request. On main, semantic-release reads the
+# conventional commits since the last tag (feat / fix / perf / BREAKING CHANGE release; chore,
+# docs, ci and test do not) and creates a GitHub prerelease for the new version. Promoting it
+# ("Set as the latest release") runs npm-release.yml, which publishes that version to npm.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+  release:
+    name: Prerelease
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Next version (semantic-release dry run)
+        id: next
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx semantic-release --dry-run 2>&1 | tee release.log
+          VERSION=$(sed -n 's/.*next release version is \([0-9][0-9.a-z-]*\).*/\1/p' release.log | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "::notice::No release: no feat / fix / perf / BREAKING CHANGE since the last tag."
+            exit 0
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create the prerelease
+        if: steps.next.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          RANGE=${LAST_TAG:+$LAST_TAG..}HEAD
+          { echo "## Changes"; echo; git log $RANGE --pretty=format:"- %s (%h)" --no-merges; echo; } > notes.md
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --notes-file notes.md --prerelease
+          echo "::notice::Created prerelease v$VERSION. Promote it to publish to npm."
