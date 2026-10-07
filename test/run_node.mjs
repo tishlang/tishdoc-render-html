@@ -1,4 +1,4 @@
-import { parseDocument } from "../../tishdoc-parse/dist/tishdoc-parse.js"
+import { parseDocument } from "./tishdoc-parse.js"
 import { renderToHtmlFragment, renderToHtmlDocument } from "../dist/tishdoc-render-html.js"
 
 let src = "---\ntitle: T\n---\n\n# Hi\n\n**Bold** text.\n"
