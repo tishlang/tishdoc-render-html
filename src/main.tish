@@ -1,6 +1,6 @@
 // Walk TishDoc AST → semantic HTML; print CSS is separate for bundling into <style>.
 
-import { highlightCodeToHtml, defaultSyntaxHighlightCss } from "../../tish-syntax-highlight/src/main.tish"
+import { highlightCodeToHtml, defaultSyntaxHighlightCss } from "@tishlang/tish-syntax-highlight"
 
 fn escapeHtml(s) {
   if (s === null) {

@@ -31,6 +31,10 @@ jobs:
       - name: Upgrade npm for OIDC trusted publishing (needs >= 11.5.1)
         run: npm install -g npm@latest
 
+      # npm publish runs prepack, which builds dist/ with the tish compiler from devDependencies.
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
       - name: Determine version and whether it is already published
         id: check
         run: |
